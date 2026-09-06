@@ -25,6 +25,24 @@ import paystackWebhookHandler from './api/paystack-webhook.js';
 
 const app = express();
 
+// Logs every incoming request BEFORE any routing/CORS logic runs, so we
+// can see in Render's logs exactly what's arriving (method, path, and
+// the browser's Origin header) — including preflight OPTIONS requests
+// and anything CORS ends up rejecting. Without this, a CORS rejection
+// happens silently: the request arrives, gets turned away, and nothing
+// is ever printed, which makes it look like nothing reached the server
+// at all.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(
+      `${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - start}ms)`
+      + ` Origin: ${req.headers.origin || 'none'}`
+    );
+  });
+  next();
+});
+
 // Comma-separated list of allowed frontend origins, e.g.
 // "https://your-app.vercel.app,https://yourdomain.com"
 // Set this in Render's environment variables — do NOT hardcode it here,
@@ -67,6 +85,20 @@ app.options('/api/verify-payment', cors(corsOptions));
 // Render pings this (or you can point its health check here) to confirm
 // the service is up.
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
+
+// Catches the error thrown by corsOptions.origin() above when a request
+// comes from an origin not in CORS_ORIGIN. Without this handler, Express's
+// default error handler would return a generic HTML 500 with no CORS
+// headers, which looks identical to a network failure in the browser —
+// this makes the actual reason visible in the logs instead.
+app.use((err, req, res, next) => {
+  if (err && err.message && err.message.includes('not allowed by CORS')) {
+    console.error('CORS rejection:', err.message);
+    return res.status(403).json({ error: 'Origin not allowed' });
+  }
+  console.error('Unhandled error:', err);
+  return res.status(500).json({ error: 'Internal server error' });
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
