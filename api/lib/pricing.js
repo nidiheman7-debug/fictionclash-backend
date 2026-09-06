@@ -22,6 +22,14 @@ export const PREMIUM_DECORATIONS = {
   'skeletal-reaper': 0.72,
 };
 
+// Profile CARD effects (Theme Store > Card effects) that cost real money.
+// Meteor Fall isn't listed here — it's free, gated behind an XP threshold
+// instead (see isValidEquipmentChange() in firestore.rules), never a
+// Paystack item.
+export const PREMIUM_CARD_EFFECTS = {
+  'overgrowth': 0.70,
+};
+
 // Verified-badge renewal: $3.61 buys 7 days, stacked onto the user's
 // current verifiedUntil (or from now, if it's already expired).
 export const BADGE_RENEWAL_USD = 3.61;
