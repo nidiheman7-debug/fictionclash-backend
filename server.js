@@ -56,6 +56,14 @@ app.use(express.json());
 app.post('/api/create-payment', cors(corsOptions), createPaymentHandler);
 app.post('/api/verify-payment', cors(corsOptions), verifyPaymentHandler);
 
+// Browsers send an OPTIONS preflight before the actual POST for these
+// two routes (cross-origin + JSON body + Authorization header always
+// triggers one). Without an explicit OPTIONS route, Express returns 404
+// to the preflight and the browser blocks the real request entirely —
+// this is what was causing "Could not start checkout" on the frontend.
+app.options('/api/create-payment', cors(corsOptions));
+app.options('/api/verify-payment', cors(corsOptions));
+
 // Render pings this (or you can point its health check here) to confirm
 // the service is up.
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
