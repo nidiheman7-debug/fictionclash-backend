@@ -8,7 +8,7 @@
 // PAYSTACK_SECRET_KEY (Paystack's live secret key).
 
 import admin from 'firebase-admin';
-import { PREMIUM_DECORATIONS, BADGE_RENEWAL_USD } from './lib/pricing.js';
+import { PREMIUM_DECORATIONS, PREMIUM_CARD_EFFECTS, BADGE_RENEWAL_USD } from './lib/pricing.js';
 import { getUsdToNgnRate } from './lib/fx.js';
 
 if (!admin.apps.length) {
@@ -32,10 +32,13 @@ export default async function handler(req, res) {
     ? authHeader.slice(7)
     : null;
 
-  if (itemType !== 'decoration' && itemType !== 'badge') {
-    return res.status(400).json({ error: 'itemType must be "decoration" or "badge"' });
+  if (itemType !== 'decoration' && itemType !== 'cardEffect' && itemType !== 'badge') {
+    return res.status(400).json({ error: 'itemType must be "decoration", "cardEffect", or "badge"' });
   }
   if (itemType === 'decoration' && (!itemId || !PREMIUM_DECORATIONS[itemId])) {
+    return res.status(400).json({ error: 'Unknown or non-premium itemId' });
+  }
+  if (itemType === 'cardEffect' && (!itemId || !PREMIUM_CARD_EFFECTS[itemId])) {
     return res.status(400).json({ error: 'Unknown or non-premium itemId' });
   }
   if (!idToken) {
@@ -50,7 +53,9 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Invalid or expired auth token' });
   }
 
-  const usd = itemType === 'decoration' ? PREMIUM_DECORATIONS[itemId] : BADGE_RENEWAL_USD;
+  const usd = itemType === 'decoration' ? PREMIUM_DECORATIONS[itemId]
+    : itemType === 'cardEffect' ? PREMIUM_CARD_EFFECTS[itemId]
+    : BADGE_RENEWAL_USD;
 
   // Guards against double-taps (or any concurrent duplicate request)
   // starting two Paystack sessions for the same item before the first
@@ -63,10 +68,11 @@ export default async function handler(req, res) {
 
   try {
     await db.runTransaction(async (trx) => {
-      if (itemType === 'decoration') {
+      if (itemType === 'decoration' || itemType === 'cardEffect') {
+        const ownedField = itemType === 'decoration' ? 'unlockedDecorations' : 'unlockedCardEffects';
         const userSnap = await trx.get(db.collection('users').doc(uid));
-        const owned = userSnap.exists && Array.isArray(userSnap.data().unlockedDecorations)
-          ? userSnap.data().unlockedDecorations
+        const owned = userSnap.exists && Array.isArray(userSnap.data()[ownedField])
+          ? userSnap.data()[ownedField]
           : [];
         if (owned.includes(itemId)) {
           throw Object.assign(new Error('already-owned'), { code: 'already-owned' });
@@ -85,7 +91,7 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     if (err.code === 'already-owned') {
-      return res.status(409).json({ error: 'You already own this decoration' });
+      return res.status(409).json({ error: 'You already own this item' });
     }
     if (err.code === 'purchase-in-progress') {
       return res.status(409).json({ error: 'A purchase for this item is already in progress. Please wait a moment and try again.' });

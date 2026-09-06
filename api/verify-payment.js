@@ -68,6 +68,11 @@ export async function creditPayment(reference) {
         unlockedDecorations: admin.firestore.FieldValue.arrayUnion(payment.itemId),
         lastRedeemedDecoration: payment.itemId,
       }, { merge: true });
+    } else if (payment.itemType === 'cardEffect') {
+      trx.set(userRef, {
+        unlockedCardEffects: admin.firestore.FieldValue.arrayUnion(payment.itemId),
+        lastRedeemedCardEffect: payment.itemId,
+      }, { merge: true });
     } else if (payment.itemType === 'badge') {
       const userSnap = await trx.get(userRef);
       const currentUntilMs = userSnap.exists && userSnap.data().verifiedUntil
