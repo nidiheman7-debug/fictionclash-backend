@@ -3,7 +3,6 @@
 // Requires the same FIREBASE_SERVICE_ACCOUNT_KEY env var as vote.js/comment.js.
 
 import admin from 'firebase-admin';
-import { awardXp } from './lib/xp.js';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -14,8 +13,6 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-
-const LIKE_XP = 5;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -45,17 +42,10 @@ export default async function handler(req, res) {
 
   const key = `${targetType}:${targetId}`;
   const likeRef = db.collection('likes').doc(key);
-  // Existence alone gates XP — same one-time-credit pattern as actionCredits
-  // elsewhere, so liking/unliking/re-liking the same target can only ever
-  // pay out once, no matter how many times it's toggled.
-  const creditRef = db.collection('users').doc(uid).collection('actionCredits').doc(`like:${key}`);
 
   try {
-    const { liked, awardXpNeeded } = await db.runTransaction(async (tx) => {
-      const [likeSnap, creditSnap] = await Promise.all([
-        tx.get(likeRef),
-        tx.get(creditRef),
-      ]);
+    const liked = await db.runTransaction(async (tx) => {
+      const likeSnap = await tx.get(likeRef);
 
       const uids = (likeSnap.exists && likeSnap.data().uids) || {};
       const currentlyLiked = !!uids[uid];
@@ -65,36 +55,15 @@ export default async function handler(req, res) {
         uids: { [uid]: nextLiked ? true : admin.firestore.FieldValue.delete() },
       }, { merge: true });
 
-      let awardXpNeeded = false;
-      if (nextLiked && !creditSnap.exists) {
-        tx.set(creditRef, {
-          type: 'like',
-          points: LIKE_XP,
-          creditedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        awardXpNeeded = true;
-      }
-
-      return { liked: nextLiked, awardXpNeeded };
+      return nextLiked;
     });
 
-    // Awaited (not fire-and-forget) so Vercel can't freeze this function
-    // before the XP write lands — same fix as vote.js/comment.js. A hiccup
-    // here shouldn't fail the like itself, so it's swallowed.
-    let xpResult = null;
-    if (awardXpNeeded) {
-      try {
-        xpResult = await awardXp(db, uid, LIKE_XP);
-      } catch (err) {
-        console.error('XP award failed:', err);
-      }
-    }
-
+    // Likes no longer award XP — see vote.js for the only XP source now.
     return res.status(200).json({
       success: true,
       liked,
-      xpAwarded: xpResult ? LIKE_XP : 0,
-      rank: xpResult ? xpResult.rank : null,
+      xpAwarded: 0,
+      rank: null,
     });
   } catch (err) {
     console.error('Like toggle failed:', err);
