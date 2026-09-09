@@ -8,7 +8,7 @@
 import admin from 'firebase-admin';
 
 export const VERIFIED_BADGE_POINTS = 1000;
-export const VERIFIED_BADGE_DAYS = 30;
+export const VERIFIED_BADGE_DAYS = 3;
 
 // Awards `delta` XP to users/{uid}, to the lifetime `xp` total, to
 // `weeklyXp` (zeroed out every Monday by /api/reset-weekly-xp — see that
