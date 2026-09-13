@@ -1,0 +1,20 @@
+name: Generate Matchup
+
+on:
+  schedule:
+    - cron: '0 14 * * *'   # 14:00 UTC daily — adjust as you like
+  workflow_dispatch: {}     # lets you trigger it manually from the Actions tab
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm install
+      - run: node api/generate-matchup.js
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
