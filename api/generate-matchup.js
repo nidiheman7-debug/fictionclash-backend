@@ -28,6 +28,16 @@
 
 import admin from 'firebase-admin';
 
+// Distinguishes "nothing published this run, on purpose" (safety block,
+// denylist hit, duplicate pairing, malformed response) from an actual
+// failure (bad Gemini request, missing credentials, network error). Both
+// used to throw a plain Error and exit 1 — which made GitHub Actions show
+// a red ❌ on every routine skip, indistinguishable from a real break.
+// Only a genuine error exits non-zero now; a SkipRun exits 0 with a clear
+// log line, so the Actions run history actually reflects whether
+// something needs attention.
+class SkipRun extends Error {}
+
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)),
@@ -135,7 +145,7 @@ Rules:
   // other failed run: skip publishing, don't throw a confusing parse error.
   const candidate = geminiData?.candidates?.[0];
   if (!candidate || candidate.finishReason === 'SAFETY') {
-    throw new Error('Gemini blocked its own response on safety grounds — skipping this run');
+    throw new SkipRun('Gemini blocked its own response on safety grounds — skipping this run');
   }
   const rawText = candidate?.content?.parts?.[0]?.text;
   if (!rawText) throw new Error('Empty Gemini response');
@@ -148,14 +158,14 @@ Rules:
     ['b.name', idea.b.name], ['b.version', idea.b.version || ''], ['b.source', idea.b.source || ''],
   ]) {
     if (!isCleanField(value, { maxLen: label.endsWith('name') ? 60 : 40 })) {
-      throw new Error(`Gemini response failed the format check on ${label}: ${JSON.stringify(value)}`);
+      throw new SkipRun(`Gemini response failed the format check on ${label}: ${JSON.stringify(value)}`);
     }
   }
   // Layer 3 — denylist backstop across every field together.
   const combinedText = [idea.a.name, idea.a.version, idea.a.source, idea.b.name, idea.b.version, idea.b.source]
     .filter(Boolean).join(' ');
   if (hitsDenylist(combinedText)) {
-    throw new Error('Gemini response failed the denylist check — skipping this run');
+    throw new SkipRun('Gemini response failed the denylist check — skipping this run');
   }
 
   const a = {
@@ -172,10 +182,10 @@ Rules:
   };
 
   if (a.name.toLowerCase() === b.name.toLowerCase() && a.version.toLowerCase() === b.version.toLowerCase()) {
-    throw new Error('Gemini picked the same character twice');
+    throw new SkipRun('Gemini picked the same character twice');
   }
   if (existingPairs.has(pairKey(a, b))) {
-    throw new Error(`Duplicate of an existing matchup (${a.name} vs ${b.name}) — skipping this run`);
+    throw new SkipRun(`Duplicate of an existing matchup (${a.name} vs ${b.name}) — skipping this run`);
   }
 
   const docRef = await db.collection('matchups').add({
@@ -191,10 +201,17 @@ Rules:
 run()
   .then(() => process.exit(0))
   .catch((err) => {
-    // A failed run (safety block, duplicate, malformed response) just
-    // means no matchup gets published today — logged here for Render's
-    // Cron Job run history, exits non-zero so a failed run is visible
-    // there instead of looking identical to a successful one.
+    if (err instanceof SkipRun) {
+      // Expected outcome, not a failure — no matchup published this run,
+      // but nothing is broken. Exits 0 so this shows green in GitHub
+      // Actions' run history, same as a normal successful run.
+      console.log(`generate-matchup skipped: ${err.message}`);
+      process.exit(0);
+    }
+    // A genuine failure (bad Gemini request, empty/garbled response,
+    // missing credentials, network error) — logged for the run history,
+    // exits non-zero so it's actually visible there as something that
+    // needs attention, unlike the routine skips above.
     console.error('generate-matchup failed:', err.message || err);
     process.exit(1);
   });
